@@ -12,9 +12,9 @@ func SetupRoutes(r *mux.Router, userHandler *UserHandler, membershipHandler *Mem
 
 	// Memberships
 	api.HandleFunc("/memberships", membershipHandler.GetMemberships).Methods("GET")
-	api.HandleFunc("/memberships", membershipHandler.CreateMembership).Methods("POST") // Добавляем POST
+	api.HandleFunc("/memberships", membershipHandler.CreateMembership).Methods("POST")
 
 	// Workouts
 	api.HandleFunc("/workouts", GetWorkouts).Methods("GET")
-	api.HandleFunc("/workouts", CreateWorkout).Methods("POST") // Добавляем POST
+	api.HandleFunc("/workouts", CreateWorkout).Methods("POST")
 }

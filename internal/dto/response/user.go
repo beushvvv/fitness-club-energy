@@ -1,8 +1,7 @@
-package models
+package response
 
 import "time"
 
-// Ответы
 type UserResponse struct {
 	ID        int       `json:"id"`
 	Name      string    `json:"name"`
@@ -10,11 +9,7 @@ type UserResponse struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type ErrorResponse struct {
-	Error string `json:"error"`
-}
-
-type SuccessResponse struct {
-	Message string `json:"message"`
-	ID      int    `json:"id,omitempty"`
+type UserListResponse struct {
+	Users []UserResponse `json:"users"`
+	Total int            `json:"total"`
 }

@@ -2,10 +2,13 @@ package handler
 
 import (
 	"encoding/json"
-	"fitness-club-1/internal/models"
-	"fitness-club-1/internal/service"
 	"net/http"
 	"time"
+
+	"fitness-club-energy/internal/dto/request"
+	"fitness-club-energy/internal/dto/response"
+	"fitness-club-energy/internal/model"
+	"fitness-club-energy/internal/service"
 )
 
 type MembershipHandler struct {
@@ -20,49 +23,68 @@ func NewMembershipHandler(membershipService *service.MembershipService) *Members
 // @Summary Получить все абонементы
 // @Tags memberships
 // @Produce json
-// @Success 200 {array} models.Membership
+// @Success 200 {array} response.MembershipResponse
 // @Router /api/v1/memberships [get]
 func (h *MembershipHandler) GetMemberships(w http.ResponseWriter, r *http.Request) {
 	memberships, err := h.membershipService.GetAllMemberships()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response.ErrorResponse{Error: err.Error()})
 		return
 	}
-	json.NewEncoder(w).Encode(memberships)
+
+	// Преобразование model → response DTO
+	var membershipResponses []response.MembershipResponse
+	for _, membership := range memberships {
+		membershipResponses = append(membershipResponses, response.MembershipResponse{
+			ID:        membership.ID,
+			UserID:    membership.UserID,
+			Type:      membership.Type,
+			Price:     membership.Price,
+			StartDate: membership.StartDate,
+			EndDate:   membership.EndDate,
+			IsActive:  membership.IsActive,
+			CreatedAt: membership.CreatedAt,
+		})
+	}
+
+	json.NewEncoder(w).Encode(membershipResponses)
 }
 
 // CreateMembership godoc
 // @Summary Создать новый абонемент
 // @Tags memberships
 // @Accept json
-// @Param request body models.CreateMembershipRequest true "Данные абонемента"
+// @Param request body request.CreateMembershipRequest true "Данные абонемента"
 // @Produce json
-// @Success 201 {object} models.Membership
-// @Failure 400 {object} models.ErrorResponse
+// @Success 201 {object} response.MembershipResponse
+// @Failure 400 {object} response.ErrorResponse
 // @Router /api/v1/memberships [post]
 func (h *MembershipHandler) CreateMembership(w http.ResponseWriter, r *http.Request) {
-	var req models.CreateMembershipRequest
+	var req request.CreateMembershipRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(models.ErrorResponse{Error: "Неверный формат данных"})
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response.ErrorResponse{Error: "Неверный формат данных"})
 		return
 	}
 
 	// Парсим даты
 	startDate, err := time.Parse("2006-01-02", req.StartDate)
 	if err != nil {
-		json.NewEncoder(w).Encode(models.ErrorResponse{Error: "Неверный формат start_date. Используйте YYYY-MM-DD"})
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response.ErrorResponse{Error: "Неверный формат start_date. Используйте YYYY-MM-DD"})
 		return
 	}
 
 	endDate, err := time.Parse("2006-01-02", req.EndDate)
 	if err != nil {
-		json.NewEncoder(w).Encode(models.ErrorResponse{Error: "Неверный формат end_date. Используйте YYYY-MM-DD"})
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response.ErrorResponse{Error: "Неверный формат end_date. Используйте YYYY-MM-DD"})
 		return
 	}
 
-	// Создаем membership
-	membership := models.Membership{
+	// Преобразование request DTO → model
+	membership := model.Membership{
 		UserID:    req.UserID,
 		Type:      req.Type,
 		Price:     req.Price,
@@ -72,10 +94,23 @@ func (h *MembershipHandler) CreateMembership(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := h.membershipService.CreateMembership(&membership); err != nil {
-		json.NewEncoder(w).Encode(models.ErrorResponse{Error: err.Error()})
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response.ErrorResponse{Error: err.Error()})
 		return
 	}
 
+	// Преобразование model → response DTO
+	resp := response.MembershipResponse{
+		ID:        membership.ID,
+		UserID:    membership.UserID,
+		Type:      membership.Type,
+		Price:     membership.Price,
+		StartDate: membership.StartDate,
+		EndDate:   membership.EndDate,
+		IsActive:  membership.IsActive,
+		CreatedAt: membership.CreatedAt,
+	}
+
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(membership)
+	json.NewEncoder(w).Encode(resp)
 }

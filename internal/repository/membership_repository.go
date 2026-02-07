@@ -1,55 +1,47 @@
 package repository
 
 import (
-	"fitness-club-1/internal/models"
+	"fitness-club-energy/internal/model"
 
 	"github.com/jmoiron/sqlx"
 )
 
-type MembershipRepository interface {
-	GetAll() ([]models.Membership, error)
-	GetByUserID(userID int) ([]models.Membership, error)
-	Create(membership *models.Membership) error
-}
-
-type membershipRepository struct {
+type MembershipRepository struct {
 	db *sqlx.DB
 }
 
-func NewMembershipRepository(db *sqlx.DB) MembershipRepository {
-	return &membershipRepository{db: db}
+func NewMembershipRepository(db *sqlx.DB) *MembershipRepository {
+	return &MembershipRepository{db: db}
 }
 
-func (r *membershipRepository) GetAll() ([]models.Membership, error) {
-	var memberships []models.Membership
+func (r *MembershipRepository) GetAll() ([]model.Membership, error) {
+	var memberships []model.Membership
 	query := `
-        SELECT m.id, m.type, m.price, m.start_date, m.end_date, m.is_active, 
-               m.user_id, m.created_at 
-        FROM memberships m
-        ORDER BY m.created_at DESC
+        SELECT id, user_id, type, price, start_date, end_date, is_active, created_at 
+        FROM memberships 
+        ORDER BY created_at DESC
     `
 	err := r.db.Select(&memberships, query)
 	return memberships, err
 }
 
-func (r *membershipRepository) GetByUserID(userID int) ([]models.Membership, error) {
-	var memberships []models.Membership
+func (r *MembershipRepository) GetByUserID(userID int) ([]model.Membership, error) {
+	var memberships []model.Membership
 	query := `
-        SELECT m.id, m.type, m.price, m.start_date, m.end_date, m.is_active, 
-               m.user_id, m.created_at 
-        FROM memberships m
-        WHERE m.user_id = $1 AND m.is_active = true
-        ORDER BY m.end_date DESC
+        SELECT id, user_id, type, price, start_date, end_date, is_active, created_at 
+        FROM memberships 
+        WHERE user_id = $1 AND is_active = true
+        ORDER BY end_date DESC
     `
 	err := r.db.Select(&memberships, query, userID)
 	return memberships, err
 }
 
-func (r *membershipRepository) Create(membership *models.Membership) error {
+func (r *MembershipRepository) Create(membership *model.Membership) error {
 	query := `
         INSERT INTO memberships (user_id, type, price, start_date, end_date, is_active)
         VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id
+        RETURNING id, created_at
     `
 	return r.db.QueryRow(
 		query,
@@ -59,5 +51,23 @@ func (r *membershipRepository) Create(membership *models.Membership) error {
 		membership.StartDate,
 		membership.EndDate,
 		membership.IsActive,
-	).Scan(&membership.ID)
+	).Scan(&membership.ID, &membership.CreatedAt)
+}
+
+func (r *MembershipRepository) Update(membership *model.Membership) error {
+	query := `
+        UPDATE memberships 
+        SET type = $1, price = $2, start_date = $3, end_date = $4, is_active = $5 
+        WHERE id = $6
+    `
+	_, err := r.db.Exec(
+		query,
+		membership.Type,
+		membership.Price,
+		membership.StartDate,
+		membership.EndDate,
+		membership.IsActive,
+		membership.ID,
+	)
+	return err
 }

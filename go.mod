@@ -1,4 +1,4 @@
-module fitness-club-1
+module fitness-club-energy
 
 go 1.21
 

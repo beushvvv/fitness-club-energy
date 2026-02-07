@@ -1,12 +1,13 @@
 package repository
 
 import (
-	"fitness-club-1/internal/config"
 	"fmt"
 	"log"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+
+	"fitness-club-energy/internal/config"
 )
 
 var DB *sqlx.DB

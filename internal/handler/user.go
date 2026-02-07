@@ -2,12 +2,15 @@ package handler
 
 import (
 	"encoding/json"
-	"fitness-club-1/internal/models"
-	"fitness-club-1/internal/service"
 	"net/http"
 	"strconv"
 
 	"github.com/gorilla/mux"
+
+	"fitness-club-energy/internal/dto/request"
+	"fitness-club-energy/internal/dto/response"
+	"fitness-club-energy/internal/model"
+	"fitness-club-energy/internal/service"
 )
 
 type UserHandler struct {
@@ -22,15 +25,30 @@ func NewUserHandler(userService *service.UserService) *UserHandler {
 // @Summary Получить всех пользователей
 // @Tags users
 // @Produce json
-// @Success 200 {array} models.User
+// @Success 200 {object} response.UserListResponse
 // @Router /api/v1/users [get]
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := h.userService.GetAllUsers()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response.ErrorResponse{Error: err.Error()})
 		return
 	}
-	json.NewEncoder(w).Encode(users)
+
+	// Преобразование model → response DTO
+	var userResponses []response.UserResponse
+	for _, user := range users {
+		userResponses = append(userResponses, response.UserResponse{
+			ID:        user.ID,
+			Name:      user.Name,
+			Email:     user.Email,
+			CreatedAt: user.CreatedAt,
+		})
+	}
+
+	json.NewEncoder(w).Encode(response.UserListResponse{
+		Users: userResponses,
+		Total: len(userResponses),
+	})
 }
 
 // GetUser godoc
@@ -38,7 +56,8 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 // @Tags users
 // @Param id path int true "ID пользователя"
 // @Produce json
-// @Success 200 {object} models.User
+// @Success 200 {object} response.UserResponse
+// @Failure 404 {object} response.ErrorResponse
 // @Router /api/v1/users/{id} [get]
 func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -46,44 +65,55 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.userService.GetUserByID(id)
 	if err != nil {
-		http.Error(w, "Пользователь не найден", http.StatusNotFound)
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(response.ErrorResponse{Error: "Пользователь не найден"})
 		return
 	}
 
-	json.NewEncoder(w).Encode(user)
+	// Преобразование model → response DTO
+	resp := response.UserResponse{
+		ID:        user.ID,
+		Name:      user.Name,
+		Email:     user.Email,
+		CreatedAt: user.CreatedAt,
+	}
+
+	json.NewEncoder(w).Encode(resp)
 }
 
 // CreateUser godoc
 // @Summary Создать нового пользователя
 // @Tags users
 // @Accept json
-// @Param request body models.CreateUserRequest true "Данные пользователя"
+// @Param request body request.CreateUserRequest true "Данные пользователя"
 // @Produce json
-// @Success 201 {object} models.UserResponse
-// @Failure 400 {object} models.ErrorResponse
+// @Success 201 {object} response.UserResponse
+// @Failure 400 {object} response.ErrorResponse
 // @Router /api/v1/users [post]
 func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
-	var req models.CreateUserRequest
+	var req request.CreateUserRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		json.NewEncoder(w).Encode(models.ErrorResponse{Error: "Неверный формат данных"})
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response.ErrorResponse{Error: "Неверный формат данных"})
 		return
 	}
 
-	// Преобразование DTO в Entity
-	user := models.User{
+	// Преобразование request DTO → model
+	user := model.User{
 		Name:  req.Name,
 		Email: req.Email,
 		Phone: req.Phone,
 	}
 
 	if err := h.userService.CreateUser(&user); err != nil {
-		json.NewEncoder(w).Encode(models.ErrorResponse{Error: err.Error()})
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	// Преобразование Entity в Response DTO
-	response := models.UserResponse{
+	// Преобразование model → response DTO
+	resp := response.UserResponse{
 		ID:        user.ID,
 		Name:      user.Name,
 		Email:     user.Email,
@@ -91,5 +121,5 @@ func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(resp)
 }

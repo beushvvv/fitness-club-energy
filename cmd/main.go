@@ -1,11 +1,11 @@
 package main
 
 import (
-	_ "fitness-club-1/docs"
-	"fitness-club-1/internal/config"
-	"fitness-club-1/internal/handler"
-	"fitness-club-1/internal/repository"
-	"fitness-club-1/internal/service"
+	_ "fitness-club-energy/docs"
+	"fitness-club-energy/internal/config"
+	"fitness-club-energy/internal/handler"
+	"fitness-club-energy/internal/repository"
+	"fitness-club-energy/internal/service"
 	"log"
 	"net/http"
 
