@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "fitness-club-energy/docs"
+	"fitness-club-energy/internal/cache"
 	"fitness-club-energy/internal/config"
 	"fitness-club-energy/internal/handler"
 	"fitness-club-energy/internal/repository"
@@ -27,6 +28,14 @@ func main() {
 		log.Fatalf("❌ Failed to connect to database: %v", err)
 	}
 	defer repository.CloseDB()
+
+	redisClient := cache.NewRedisClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	if err := redisClient.Ping(); err != nil {
+		log.Printf("⚠️  Redis not available: %v", err)
+	} else {
+		log.Println("✅ Connected to Redis")
+	}
+	defer redisClient.Close()
 
 	// Инициализация репозиториев
 	db := repository.GetDB()
