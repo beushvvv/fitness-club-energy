@@ -16,7 +16,7 @@ import (
 
 // @title Fitness Club Energy API
 // @version 1.0
-// @description API для фитнес-клуба Energy с PostgreSQL
+// @description API для фитнес-клуба Energy с PostgreSQL и Redis кешированием
 // @host localhost:8080
 // @BasePath /api/v1
 func main() {
@@ -29,6 +29,7 @@ func main() {
 	}
 	defer repository.CloseDB()
 
+	// Инициализация Redis
 	redisClient := cache.NewRedisClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	if err := redisClient.Ping(); err != nil {
 		log.Printf("⚠️  Redis not available: %v", err)
@@ -37,18 +38,20 @@ func main() {
 	}
 	defer redisClient.Close()
 
-	// Инициализация репозиториев
-	db := repository.GetDB()
+	// Инициализация репозиториев - ИСПРАВЛЕНО
+	db := repository.GetDB() // Это возвращает *sql.DB
 	userRepo := repository.NewUserRepository(db)
 	membershipRepo := repository.NewMembershipRepository(db)
 
-	// Инициализация сервисов
-	userService := service.NewUserService(userRepo)
-	membershipService := service.NewMembershipService(membershipRepo)
+	// Инициализация сервисов с Redis
+	userService := service.NewUserService(userRepo, redisClient)
+	membershipService := service.NewMembershipService(membershipRepo, redisClient)
+	workoutService := service.NewWorkoutService(redisClient)
 
 	// Инициализация обработчиков
 	userHandler := handler.NewUserHandler(userService)
 	membershipHandler := handler.NewMembershipHandler(membershipService)
+	workoutHandler := handler.NewWorkoutHandler(workoutService)
 
 	// Настройка роутера
 	r := mux.NewRouter()
@@ -56,12 +59,12 @@ func main() {
 	// Swagger
 	r.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
 
-	// API routes
-	handler.SetupRoutes(r, userHandler, membershipHandler)
+	// API routes - ИСПРАВЛЕНО: передаём все три обработчика
+	handler.SetupRoutes(r, userHandler, membershipHandler, workoutHandler)
 
 	// Health check
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("✅ Фитнес-клуб Energy работает с PostgreSQL"))
+		w.Write([]byte("✅ Фитнес-клуб Energy работает с PostgreSQL и Redis"))
 	}).Methods("GET")
 
 	log.Printf("🚀 Сервер запущен на :%s", cfg.ServerPort)
