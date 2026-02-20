@@ -4,45 +4,53 @@ import (
 	"fitness-club-energy/internal/cache"
 	"fitness-club-energy/internal/model"
 	"fitness-club-energy/internal/repository"
+	"log"
 	"time"
 )
 
 type MembershipService struct {
 	membershipRepo *repository.MembershipRepository
-	cache          *cache.RedisClient
-	cacheWrap      *cache.CacheWrapper
+	cacheWrapper   *cache.CacheWrapper
 }
 
-func NewMembershipService(membershipRepo *repository.MembershipRepository, redisClient *cache.RedisClient) *MembershipService {
+// ИСПРАВЛЕНО: принимает CacheWrapper вместо RedisClient
+func NewMembershipService(membershipRepo *repository.MembershipRepository, cacheWrapper *cache.CacheWrapper) *MembershipService {
 	return &MembershipService{
 		membershipRepo: membershipRepo,
-		cache:          redisClient,
-		cacheWrap:      cache.NewCacheWrapper(redisClient),
+		cacheWrapper:   cacheWrapper,
 	}
 }
 
-// GetAllMemberships с кешированием
+// GetAllMemberships с ЛОГАМИ
 func (s *MembershipService) GetAllMemberships() ([]model.Membership, error) {
 	var memberships []model.Membership
 
-	err := s.cacheWrap.GetOrSet(
-		cache.MembershipsAllPrefix,
-		5*time.Minute,
-		&memberships,
-		func() (interface{}, error) {
-			return s.membershipRepo.FindAll()
-		},
-	)
+	err := s.cacheWrapper.Get("memberships:all", &memberships)
+	if err == nil {
+		log.Println("📦 MEMBERSHIPS FROM CACHE")
+		return memberships, nil
+	}
 
-	return memberships, err
+	log.Println("💾 MEMBERSHIPS FROM DATABASE")
+	memberships, err = s.membershipRepo.FindAll()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(memberships) > 0 {
+		s.cacheWrapper.Set("memberships:all", memberships, 5*time.Minute)
+	}
+
+	return memberships, nil
 }
 
 // GetMembershipByID с кешированием
 func (s *MembershipService) GetMembershipByID(id int) (*model.Membership, error) {
 	var membership model.Membership
+	key := "membership:" + string(rune(id))
 
-	err := s.cacheWrap.GetOrSet(
-		cache.MembershipKey(id),
+	err := s.cacheWrapper.GetOrSet(
+		key,
 		10*time.Minute,
 		&membership,
 		func() (interface{}, error) {
@@ -62,11 +70,8 @@ func (s *MembershipService) CreateMembership(membership *model.Membership) error
 		return err
 	}
 
-	// Очищаем кеш списка абонементов
-	for _, key := range cache.KeysToInvalidate("membership") {
-		_ = s.cache.Delete(key)
-	}
-
+	// Очищаем кеш списка
+	s.cacheWrapper.Delete("memberships:all")
 	return nil
 }
 
@@ -77,10 +82,7 @@ func (s *MembershipService) UpdateMembership(membership *model.Membership) error
 	}
 
 	// Очищаем кеш
-	_ = s.cache.Delete(cache.MembershipKey(membership.ID))
-	for _, key := range cache.KeysToInvalidate("membership") {
-		_ = s.cache.Delete(key)
-	}
-
+	s.cacheWrapper.Delete("membership:" + string(rune(membership.ID)))
+	s.cacheWrapper.Delete("memberships:all")
 	return nil
 }

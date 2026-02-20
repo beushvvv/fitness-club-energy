@@ -7,52 +7,82 @@ import (
 	"time"
 
 	"fitness-club-energy/internal/dto/request"
-	"fitness-club-energy/internal/dto/response"
 	"fitness-club-energy/internal/model"
+	"fitness-club-energy/internal/service"
+
+	"github.com/gorilla/mux"
 )
 
+type WorkoutHandler struct {
+	workoutService *service.WorkoutService
+}
+
+func NewWorkoutHandler(workoutService *service.WorkoutService) *WorkoutHandler {
+	return &WorkoutHandler{workoutService: workoutService}
+}
+
 // GetWorkouts godoc
-// @Summary Получить тренировки с динамическими фильтрами
-// @Description Получение тренировок с фильтрацией по типу, дате, пользователю
+// @Summary Получить все тренировки
 // @Tags workouts
-// @Param type query string false "Тип тренировки"
-// @Param date query string false "Дата тренировки (YYYY-MM-DD)"
-// @Param user_id query int false "ID пользователя"
 // @Produce json
-// @Success 200 {array} response.WorkoutResponse
+// @Success 200 {array} model.Workout
 // @Router /api/v1/workouts [get]
-func GetWorkouts(w http.ResponseWriter, r *http.Request) {
-	// Создаем DTO из query параметров
-	var req request.FilterWorkoutsRequest
+func (h *WorkoutHandler) GetWorkouts(w http.ResponseWriter, r *http.Request) {
+	workouts, err := h.workoutService.GetAllWorkouts()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(workouts)
+}
 
-	req.Type = r.URL.Query().Get("type")
-	req.Date = r.URL.Query().Get("date")
+// GetWorkoutByID godoc
+// @Summary Получить тренировку по ID
+// @Tags workouts
+// @Produce json
+// @Param id path int true "ID тренировки"
+// @Success 200 {object} model.Workout
+// @Failure 404 {object} map[string]string
+// @Router /api/v1/workouts/{id} [get]
+func (h *WorkoutHandler) GetWorkoutByID(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, _ := strconv.Atoi(vars["id"])
 
-	if userIDStr := r.URL.Query().Get("user_id"); userIDStr != "" {
-		if userID, err := strconv.Atoi(userIDStr); err == nil {
-			req.UserID = userID
-		}
+	workout, err := h.workoutService.GetWorkoutByID(id)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Workout not found"})
+		return
+	}
+	json.NewEncoder(w).Encode(workout)
+}
+
+// CreateWorkout godoc
+// @Summary Создать новую тренировку
+// @Tags workouts
+// @Accept json
+// @Produce json
+// @Param workout body model.Workout true "Данные тренировки"
+// @Success 201 {object} model.Workout
+// @Failure 400 {object} map[string]string
+// @Router /api/v1/workouts [post]
+func (h *WorkoutHandler) CreateWorkout(w http.ResponseWriter, r *http.Request) {
+	var workout model.Workout
+	if err := json.NewDecoder(r.Body).Decode(&workout); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
+		return
 	}
 
-	// Динамическое формирование ответа на основе DTO
-	workouts := getDynamicWorkouts(req)
-
-	// Преобразование model → response DTO
-	var workoutResponses []response.WorkoutResponse
-	for _, workout := range workouts {
-		workoutResponses = append(workoutResponses, response.WorkoutResponse{
-			ID:              workout.ID,
-			UserID:          workout.UserID,
-			Type:            workout.Type,
-			DurationMinutes: workout.DurationMinutes,
-			CaloriesBurned:  workout.CaloriesBurned,
-			Notes:           workout.Notes,
-			WorkoutDate:     workout.WorkoutDate,
-			CreatedAt:       workout.CreatedAt,
-		})
+	if err := h.workoutService.CreateWorkout(&workout); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
 	}
 
-	json.NewEncoder(w).Encode(workoutResponses)
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(workout)
 }
 
 func getDynamicWorkouts(req request.FilterWorkoutsRequest) []model.Workout {
@@ -114,67 +144,4 @@ func getDynamicWorkouts(req request.FilterWorkoutsRequest) []model.Workout {
 	}
 
 	return filtered
-}
-
-// CreateWorkout godoc
-// @Summary Создать тренировку с динамическими данными
-// @Description Принимает динамические данные о тренировке от клиента
-// @Tags workouts
-// @Accept json
-// @Param request body request.CreateWorkoutRequest true "Динамические данные тренировки"
-// @Produce json
-// @Success 201 {object} response.WorkoutResponse
-// @Failure 400 {object} response.ErrorResponse
-// @Router /api/v1/workouts [post]
-func CreateWorkout(w http.ResponseWriter, r *http.Request) {
-	var req request.CreateWorkoutRequest
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(response.ErrorResponse{Error: "Неверный формат данных"})
-		return
-	}
-
-	// Валидация DTO
-	if req.UserID <= 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(response.ErrorResponse{Error: "user_id должен быть положительным числом"})
-		return
-	}
-
-	if req.DurationMinutes <= 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(response.ErrorResponse{Error: "duration_minutes должен быть положительным числом"})
-		return
-	}
-
-	// Преобразование request DTO → model
-	workout := model.Workout{
-		UserID:          req.UserID,
-		Type:            req.Type,
-		DurationMinutes: req.DurationMinutes,
-		CaloriesBurned:  req.CaloriesBurned,
-		Notes:           req.Notes,
-		WorkoutDate:     time.Now(),
-		CreatedAt:       time.Now(),
-	}
-
-	// Здесь в реальности была бы логика сохранения в БД
-	// Для примера присваиваем ID
-	workout.ID = 100
-
-	// Преобразование model → response DTO
-	resp := response.WorkoutResponse{
-		ID:              workout.ID,
-		UserID:          workout.UserID,
-		Type:            workout.Type,
-		DurationMinutes: workout.DurationMinutes,
-		CaloriesBurned:  workout.CaloriesBurned,
-		Notes:           workout.Notes,
-		WorkoutDate:     workout.WorkoutDate,
-		CreatedAt:       workout.CreatedAt,
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(resp)
 }

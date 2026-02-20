@@ -2,18 +2,19 @@ package cache
 
 import (
 	"context"
-
 	"encoding/json"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
+// RedisClient клиент для работы с Redis
 type RedisClient struct {
 	client *redis.Client
 	ctx    context.Context
 }
 
+// NewRedisClient создаёт новый клиент Redis
 func NewRedisClient(addr, password string, db int) *RedisClient {
 	client := redis.NewClient(&redis.Options{
 		Addr:     addr,
@@ -27,31 +28,35 @@ func NewRedisClient(addr, password string, db int) *RedisClient {
 	}
 }
 
+// Ping проверяет подключение к Redis
+func (r *RedisClient) Ping() error {
+	return r.client.Ping(r.ctx).Err()
+}
+
+// Close закрывает соединение с Redis
+func (r *RedisClient) Close() error {
+	return r.client.Close()
+}
+
 // Set сохраняет данные в Redis с TTL
 func (r *RedisClient) Set(key string, value interface{}, ttl time.Duration) error {
-	// Сериализуем в JSON
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-
-	// Сохраняем в Redis
 	return r.client.Set(r.ctx, key, data, ttl).Err()
 }
 
 // Get получает данные из Redis
 func (r *RedisClient) Get(key string, dest interface{}) error {
-	// Получаем данные
 	data, err := r.client.Get(r.ctx, key).Bytes()
 	if err != nil {
 		return err
 	}
-
-	// Десериализуем
 	return json.Unmarshal(data, dest)
 }
 
-// Delete удаляет ключ
+// Delete удаляет ключ из Redis
 func (r *RedisClient) Delete(key string) error {
 	return r.client.Del(r.ctx, key).Err()
 }
@@ -60,14 +65,4 @@ func (r *RedisClient) Delete(key string) error {
 func (r *RedisClient) Exists(key string) (bool, error) {
 	n, err := r.client.Exists(r.ctx, key).Result()
 	return n > 0, err
-}
-
-// Проверка подключения
-func (r *RedisClient) Ping() error {
-	return r.client.Ping(r.ctx).Err()
-}
-
-// Закрытие соединения
-func (r *RedisClient) Close() error {
-	return r.client.Close()
 }

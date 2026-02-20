@@ -2,40 +2,36 @@ package cache
 
 import "fmt"
 
-// Ключи для кеширования
 const (
-	// Префиксы для разных типов данных
 	UsersAllPrefix       = "users:all"
-	UserByIDPrefix       = "user:%d"
 	MembershipsAllPrefix = "memberships:all"
-	MembershipByIDPrefix = "membership:%d"
-	WorkoutsFilterPrefix = "workouts:filter:%s"
+	WorkoutsAllPrefix    = "workouts:all"
 )
 
-// UserKey возвращает ключ для кеша пользователя по ID
+// UserKey возвращает ключ для кеширования пользователя по ID
 func UserKey(id int) string {
-	return fmt.Sprintf(UserByIDPrefix, id)
+	return fmt.Sprintf("user:%d", id)
 }
 
-// MembershipKey возвращает ключ для кеша абонемента по ID
+// MembershipKey возвращает ключ для кеширования абонемента по ID
 func MembershipKey(id int) string {
-	return fmt.Sprintf(MembershipByIDPrefix, id)
+	return fmt.Sprintf("membership:%d", id)
 }
 
-// WorkoutsFilterKey возвращает ключ для кеша тренировок с фильтром
-func WorkoutsFilterKey(filterHash string) string {
-	return fmt.Sprintf(WorkoutsFilterPrefix, filterHash)
+// WorkoutKey возвращает ключ для кеширования тренировки по ID
+func WorkoutKey(id int) string {
+	return fmt.Sprintf("workout:%d", id)
 }
 
-// KeysToInvalidate возвращает ключи, которые нужно очистить при изменении данных
-func KeysToInvalidate(entityType string) []string {
-	switch entityType {
+// KeysToInvalidate возвращает ключи для инвалидации при изменении сущности
+func KeysToInvalidate(entity string) []string {
+	switch entity {
 	case "user":
 		return []string{UsersAllPrefix}
 	case "membership":
 		return []string{MembershipsAllPrefix}
 	case "workout":
-		return []string{} // Для тренировок нужна более сложная логика
+		return []string{WorkoutsAllPrefix}
 	default:
 		return []string{}
 	}
