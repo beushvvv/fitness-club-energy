@@ -1,4 +1,3 @@
-```markdown
 # Fitness Club Energy
 
 Веб-приложение для фитнес-клуба на Go с PostgreSQL и Redis.
@@ -28,67 +27,38 @@
 ### 1. Запуск базы данных и Redis
 ```bash
 docker-compose up -d
-```
-
-### 2. Запуск приложения
-```bash
+2. Запуск приложения
+bash
 go mod tidy
 go run cmd/main.go
-```
+3. Доступ к приложению
+Сервер: http://localhost:8080
 
-### 3. Доступ к приложению
-- **Сервер:** `http://localhost:8080`
-- **Swagger документация:** `http://localhost:8080/swagger/index.html`
+Swagger документация: http://localhost:8080/swagger/index.html
 
-## Структура проекта
-
-```
+Структура проекта
+text
 .
 ├── cmd/
-│   └── main.go                 # Точка входа
+│   └── main.go
 ├── internal/
-│   ├── cache/                   # Redis клиент и обёртки
-│   │   ├── redis.go
-│   │   ├── wrapper.go
-│   │   └── keys.go
-│   ├── config/                  # Конфигурация
-│   │   └── config.go
-│   ├── dto/                     # Data Transfer Objects
-│   │   ├── request/             # Входящие DTO
-│   │   └── response/            # Исходящие DTO
-│   ├── handler/                  # HTTP обработчики
-│   │   ├── user.go
-│   │   ├── membership.go
-│   │   ├── workout.go
-│   │   └── router.go
-│   ├── logger/                   # Логирование (zap)
-│   │   └── logger.go
-│   ├── model/                    # Модели данных
-│   │   ├── user.go
-│   │   ├── membership.go
-│   │   └── workout.go
-│   ├── repository/                # Работа с БД
-│   │   ├── database.go
-│   │   ├── user_repository.go
-│   │   ├── membership_repository.go
-│   │   └── workout_repository.go
-│   └── service/                   # Бизнес-логика
-│       ├── user_service.go
-│       ├── membership_service.go
-│       └── workout_service.go
-├── migrations/                    # SQL миграции
-│   └── 001_init.sql
+│   ├── cache/
+│   ├── config/
+│   ├── dto/
+│   ├── handler/
+│   ├── logger/
+│   ├── model/
+│   ├── repository/
+│   └── service/
+├── migrations/
 ├── docker-compose.yml
 ├── .env.example
 ├── go.mod
 └── README.md
-```
+Переменные окружения
+Создайте файл .env на основе .env.example:
 
-## Переменные окружения
-
-Создайте файл `.env` на основе `.env.example`:
-
-```env
+env
 DB_HOST=localhost
 DB_PORT=5432
 DB_USER=postgres
@@ -98,9 +68,3 @@ SERVER_PORT=8080
 REDIS_ADDR=localhost:6379
 REDIS_PASSWORD=
 REDIS_DB=0
-```
-
-## Автор
-
-beushvvv
-```
