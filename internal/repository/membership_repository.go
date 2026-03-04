@@ -68,3 +68,10 @@ func (r *MembershipRepository) Update(membership *model.Membership) error {
 	)
 	return err
 }
+
+// Delete удаляет абонемент по ID
+func (r *MembershipRepository) Delete(id int) error {
+	query := `DELETE FROM memberships WHERE id = $1`
+	_, err := r.db.Exec(query, id)
+	return err
+}

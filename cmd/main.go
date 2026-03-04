@@ -1,18 +1,20 @@
 package main
 
 import (
-	"log"
+	// "log" // Удаляем стандартный лог
 	"net/http"
 
 	_ "fitness-club-energy/docs"
 	"fitness-club-energy/internal/cache"
 	"fitness-club-energy/internal/config"
 	"fitness-club-energy/internal/handler"
+	"fitness-club-energy/internal/logger" // Добавляем наш логгер
 	"fitness-club-energy/internal/repository"
 	"fitness-club-energy/internal/service"
 
 	"github.com/gorilla/mux"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
+	// Импортируем zap для использования сахара
 )
 
 // @title Fitness Club Energy API
@@ -24,32 +26,41 @@ func main() {
 	// Загрузка конфигурации
 	cfg := config.Load()
 
+	// 1. Инициализация логгера
+	if err := logger.Init("debug"); err != nil { // Для разработки ставим debug
+		panic(err)
+	}
+	defer logger.Sync() // Важно! Сбрасываем буферы при выходе
+
+	// Используем SugaredLogger для удобства (fmt.Printf стиль)
+	sugar := logger.Log.Sugar()
+
 	// Инициализация БД
 	if err := repository.InitDB(cfg); err != nil {
-		log.Fatalf("❌ Failed to connect to database: %v", err)
+		sugar.Fatalw("❌ Failed to connect to database", "error", err) // Логируем фатальную ошибку
 	}
 	defer repository.CloseDB()
-	log.Println("✅ Connected to PostgreSQL")
+	sugar.Info("✅ Connected to PostgreSQL") // Информационное сообщение
 
 	// Инициализация Redis
 	redisClient := cache.NewRedisClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	if err := redisClient.Ping(); err != nil {
-		log.Printf("⚠️ Redis not available: %v", err)
+		sugar.Warnw("⚠️ Redis not available", "error", err) // Предупреждение, но не фатал
 	} else {
-		log.Println("✅ Connected to Redis")
+		sugar.Info("✅ Connected to Redis")
 	}
 	defer redisClient.Close()
 
-	// Создаём CacheWrapper (один экземпляр для всех сервисов)
+	// Создаём CacheWrapper
 	cacheWrapper := cache.NewCacheWrapper(redisClient)
 
 	// Инициализация репозиториев
 	db := repository.GetDB()
 	userRepo := repository.NewUserRepository(db)
 	membershipRepo := repository.NewMembershipRepository(db)
-	workoutRepo := repository.NewWorkoutRepository(db) // ← теперь существует
+	workoutRepo := repository.NewWorkoutRepository(db)
 
-	// Инициализация сервисов с CacheWrapper
+	// Инициализация сервисов
 	userService := service.NewUserService(userRepo, cacheWrapper)
 	membershipService := service.NewMembershipService(membershipRepo, cacheWrapper)
 	workoutService := service.NewWorkoutService(workoutRepo, cacheWrapper)
@@ -86,10 +97,11 @@ func main() {
 		w.Write([]byte("✅ Fitness Club Energy API is running"))
 	}).Methods("GET")
 
-	log.Printf("🚀 Server started on :%s", cfg.ServerPort)
-	log.Printf("📚 Swagger: http://localhost:%s/swagger/index.html", cfg.ServerPort)
+	// Логируем успешный запуск
+	sugar.Infow("🚀 Server started", "port", cfg.ServerPort)
+	sugar.Infof("📚 Swagger: http://localhost:%s/swagger/index.html", cfg.ServerPort)
 
 	if err := http.ListenAndServe(":"+cfg.ServerPort, r); err != nil {
-		log.Fatal("❌ Server error:", err)
+		sugar.Fatalw("❌ Server error", "error", err)
 	}
 }

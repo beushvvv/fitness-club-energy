@@ -2,9 +2,9 @@ package service
 
 import (
 	"fitness-club-energy/internal/cache"
+	"fitness-club-energy/internal/logger"
 	"fitness-club-energy/internal/model"
 	"fitness-club-energy/internal/repository"
-	"log"
 	"time"
 )
 
@@ -13,7 +13,6 @@ type MembershipService struct {
 	cacheWrapper   *cache.CacheWrapper
 }
 
-// ИСПРАВЛЕНО: принимает CacheWrapper вместо RedisClient
 func NewMembershipService(membershipRepo *repository.MembershipRepository, cacheWrapper *cache.CacheWrapper) *MembershipService {
 	return &MembershipService{
 		membershipRepo: membershipRepo,
@@ -21,68 +20,117 @@ func NewMembershipService(membershipRepo *repository.MembershipRepository, cache
 	}
 }
 
-// GetAllMemberships с ЛОГАМИ
+// GetAllMemberships возвращает все абонементы с кэшированием
 func (s *MembershipService) GetAllMemberships() ([]model.Membership, error) {
 	var memberships []model.Membership
+	sugar := logger.Log.Sugar()
 
 	err := s.cacheWrapper.Get("memberships:all", &memberships)
 	if err == nil {
-		log.Println("📦 MEMBERSHIPS FROM CACHE")
+		sugar.Debugw("📦 MEMBERSHIPS FROM CACHE", "key", "memberships:all")
 		return memberships, nil
 	}
 
-	log.Println("💾 MEMBERSHIPS FROM DATABASE")
+	sugar.Debug("💾 MEMBERSHIPS FROM DATABASE")
 	memberships, err = s.membershipRepo.FindAll()
 	if err != nil {
+		sugar.Errorw("Failed to get memberships from DB", "error", err)
 		return nil, err
 	}
 
 	if len(memberships) > 0 {
 		s.cacheWrapper.Set("memberships:all", memberships, 5*time.Minute)
+		sugar.Debugw("✅ Memberships cached", "count", len(memberships))
 	}
 
 	return memberships, nil
 }
 
-// GetMembershipByID с кешированием
+// GetMembershipByID возвращает абонемент по ID
 func (s *MembershipService) GetMembershipByID(id int) (*model.Membership, error) {
 	var membership model.Membership
+	sugar := logger.Log.Sugar()
 	key := "membership:" + string(rune(id))
 
-	err := s.cacheWrapper.GetOrSet(
-		key,
-		10*time.Minute,
-		&membership,
-		func() (interface{}, error) {
-			return s.membershipRepo.FindByID(id)
-		},
-	)
+	err := s.cacheWrapper.Get(key, &membership)
+	if err == nil {
+		sugar.Debugw("📦 MEMBERSHIP FROM CACHE", "membership_id", id)
+		return &membership, nil
+	}
 
+	sugar.Debugw("💾 MEMBERSHIP FROM DATABASE", "membership_id", id)
+	membershipFromDB, err := s.membershipRepo.FindByID(id)
 	if err != nil {
+		sugar.Errorw("Failed to get membership by ID from DB",
+			"membership_id", id,
+			"error", err)
 		return nil, err
 	}
-	return &membership, nil
+
+	s.cacheWrapper.Set(key, membershipFromDB, 10*time.Minute)
+	sugar.Debugw("✅ Membership cached", "membership_id", id)
+
+	return membershipFromDB, nil
 }
 
-// CreateMembership создаёт абонемент и очищает кеш
+// CreateMembership создаёт новый абонемент
 func (s *MembershipService) CreateMembership(membership *model.Membership) error {
+	sugar := logger.Log.Sugar()
+
 	if err := s.membershipRepo.Create(membership); err != nil {
+		sugar.Errorw("Failed to create membership",
+			"error", err,
+			"user_id", membership.UserID,
+			"type", membership.Type)
 		return err
 	}
 
-	// Очищаем кеш списка
+	// Очищаем кэш списка абонементов
 	s.cacheWrapper.Delete("memberships:all")
+	sugar.Infow("Membership created and cache cleared",
+		"membership_id", membership.ID,
+		"user_id", membership.UserID,
+		"type", membership.Type)
+
 	return nil
 }
 
-// UpdateMembership обновляет абонемент и очищает кеш
+// UpdateMembership обновляет абонемент
 func (s *MembershipService) UpdateMembership(membership *model.Membership) error {
+	sugar := logger.Log.Sugar()
+
 	if err := s.membershipRepo.Update(membership); err != nil {
+		sugar.Errorw("Failed to update membership",
+			"membership_id", membership.ID,
+			"error", err)
 		return err
 	}
 
-	// Очищаем кеш
+	// Очищаем кэш
 	s.cacheWrapper.Delete("membership:" + string(rune(membership.ID)))
 	s.cacheWrapper.Delete("memberships:all")
+	sugar.Infow("Membership updated and cache cleared",
+		"membership_id", membership.ID,
+		"type", membership.Type)
+
+	return nil
+}
+
+// DeleteMembership удаляет абонемент
+func (s *MembershipService) DeleteMembership(id int) error {
+	sugar := logger.Log.Sugar()
+
+	if err := s.membershipRepo.Delete(id); err != nil {
+		sugar.Errorw("Failed to delete membership",
+			"membership_id", id,
+			"error", err)
+		return err
+	}
+
+	// Очищаем кэш
+	s.cacheWrapper.Delete("membership:" + string(rune(id)))
+	s.cacheWrapper.Delete("memberships:all")
+	sugar.Infow("Membership deleted and cache cleared", "membership_id", id)
+
 	return nil
 }
