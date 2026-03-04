@@ -1,0 +1,255 @@
+basePath: /api/v1
+definitions:
+  models.CreateMembershipRequest:
+    properties:
+      end_date:
+        type: string
+      price:
+        type: number
+      start_date:
+        type: string
+      type:
+        type: string
+      user_id:
+        type: integer
+    required:
+    - end_date
+    - price
+    - start_date
+    - type
+    - user_id
+    type: object
+  models.CreateUserRequest:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      phone:
+        type: string
+    required:
+    - email
+    - name
+    type: object
+  models.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  models.Membership:
+    properties:
+      created_at:
+        type: string
+      end_date:
+        type: string
+      id:
+        type: integer
+      is_active:
+        type: boolean
+      price:
+        type: number
+      start_date:
+        type: string
+      type:
+        type: string
+      user_id:
+        type: integer
+    type: object
+  models.User:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      phone:
+        type: string
+    type: object
+  models.UserResponse:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  models.WorkoutRequest:
+    properties:
+      calories_burned:
+        type: integer
+      duration_minutes:
+        type: integer
+      notes:
+        type: string
+      type:
+        type: string
+      user_id:
+        type: integer
+    required:
+    - duration_minutes
+    - type
+    - user_id
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: API для фитнес-клуба Energy с PostgreSQL
+  title: Fitness Club Energy API
+  version: "1.0"
+paths:
+  /api/v1/memberships:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Membership'
+            type: array
+      summary: Получить все абонементы
+      tags:
+      - memberships
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Данные абонемента
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.CreateMembershipRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.Membership'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Создать новый абонемент
+      tags:
+      - memberships
+  /api/v1/users:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.User'
+            type: array
+      summary: Получить всех пользователей
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Данные пользователя
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.CreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.UserResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Создать нового пользователя
+      tags:
+      - users
+  /api/v1/users/{id}:
+    get:
+      parameters:
+      - description: ID пользователя
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.User'
+      summary: Получить пользователя по ID
+      tags:
+      - users
+  /api/v1/workouts:
+    get:
+      description: Получение тренировок с фильтрацией по типу, дате, пользователю
+      parameters:
+      - description: Тип тренировки
+        in: query
+        name: type
+        type: string
+      - description: Дата тренировки (YYYY-MM-DD)
+        in: query
+        name: date
+        type: string
+      - description: ID пользователя
+        in: query
+        name: user_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+      summary: Получить тренировки с динамическими фильтрами
+      tags:
+      - workouts
+    post:
+      consumes:
+      - application/json
+      description: Принимает динамические данные о тренировке от клиента
+      parameters:
+      - description: Динамические данные тренировки
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.WorkoutRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Создать тренировку с динамическими данными
+      tags:
+      - workouts
+swagger: "2.0"
