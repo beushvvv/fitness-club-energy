@@ -1,26 +1,28 @@
 package service
 
 import (
+	"strconv"
+	"time"
+
 	"fitness-club-energy/internal/cache"
 	"fitness-club-energy/internal/logger"
 	"fitness-club-energy/internal/model"
 	"fitness-club-energy/internal/repository"
-	"time"
 )
 
 type MembershipService struct {
-	membershipRepo *repository.MembershipRepository
-	cacheWrapper   *cache.CacheWrapper
+	membershipRepo repository.MembershipRepositoryInterface
+	cacheWrapper   cache.CacheWrapperInterface
 }
 
-func NewMembershipService(membershipRepo *repository.MembershipRepository, cacheWrapper *cache.CacheWrapper) *MembershipService {
+func NewMembershipService(membershipRepo repository.MembershipRepositoryInterface, cacheWrapper cache.CacheWrapperInterface) *MembershipService {
 	return &MembershipService{
 		membershipRepo: membershipRepo,
 		cacheWrapper:   cacheWrapper,
 	}
 }
 
-// GetAllMemberships возвращает все абонементы с кэшированием
+// GetAllMemberships с кэшированием
 func (s *MembershipService) GetAllMemberships() ([]model.Membership, error) {
 	var memberships []model.Membership
 	sugar := logger.Log.Sugar()
@@ -46,11 +48,11 @@ func (s *MembershipService) GetAllMemberships() ([]model.Membership, error) {
 	return memberships, nil
 }
 
-// GetMembershipByID возвращает абонемент по ID
+// GetMembershipByID с кэшированием
 func (s *MembershipService) GetMembershipByID(id int) (*model.Membership, error) {
 	var membership model.Membership
 	sugar := logger.Log.Sugar()
-	key := "membership:" + string(rune(id))
+	key := "membership:" + strconv.Itoa(id)
 
 	err := s.cacheWrapper.Get(key, &membership)
 	if err == nil {
@@ -61,9 +63,7 @@ func (s *MembershipService) GetMembershipByID(id int) (*model.Membership, error)
 	sugar.Debugw("💾 MEMBERSHIP FROM DATABASE", "membership_id", id)
 	membershipFromDB, err := s.membershipRepo.FindByID(id)
 	if err != nil {
-		sugar.Errorw("Failed to get membership by ID from DB",
-			"membership_id", id,
-			"error", err)
+		sugar.Errorw("Failed to get membership by ID from DB", "membership_id", id, "error", err)
 		return nil, err
 	}
 
@@ -73,7 +73,7 @@ func (s *MembershipService) GetMembershipByID(id int) (*model.Membership, error)
 	return membershipFromDB, nil
 }
 
-// CreateMembership создаёт новый абонемент
+// CreateMembership создаёт абонемент
 func (s *MembershipService) CreateMembership(membership *model.Membership) error {
 	sugar := logger.Log.Sugar()
 
@@ -85,7 +85,6 @@ func (s *MembershipService) CreateMembership(membership *model.Membership) error
 		return err
 	}
 
-	// Очищаем кэш списка абонементов
 	s.cacheWrapper.Delete("memberships:all")
 	sugar.Infow("Membership created and cache cleared",
 		"membership_id", membership.ID,
@@ -106,8 +105,8 @@ func (s *MembershipService) UpdateMembership(membership *model.Membership) error
 		return err
 	}
 
-	// Очищаем кэш
-	s.cacheWrapper.Delete("membership:" + string(rune(membership.ID)))
+	key := "membership:" + strconv.Itoa(membership.ID)
+	s.cacheWrapper.Delete(key)
 	s.cacheWrapper.Delete("memberships:all")
 	sugar.Infow("Membership updated and cache cleared",
 		"membership_id", membership.ID,
@@ -127,8 +126,8 @@ func (s *MembershipService) DeleteMembership(id int) error {
 		return err
 	}
 
-	// Очищаем кэш
-	s.cacheWrapper.Delete("membership:" + string(rune(id)))
+	key := "membership:" + strconv.Itoa(id)
+	s.cacheWrapper.Delete(key)
 	s.cacheWrapper.Delete("memberships:all")
 	sugar.Infow("Membership deleted and cache cleared", "membership_id", id)
 
