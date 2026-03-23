@@ -5,15 +5,16 @@ import (
 	"fitness-club-energy/internal/logger"
 	"fitness-club-energy/internal/model"
 	"fitness-club-energy/internal/repository"
+	"strconv"
 	"time"
 )
 
 type UserService struct {
-	userRepo     *repository.UserRepository
-	cacheWrapper *cache.CacheWrapper
+	userRepo     repository.UserRepositoryInterface // изменено
+	cacheWrapper cache.CacheWrapperInterface        // изменено
 }
 
-func NewUserService(userRepo *repository.UserRepository, cacheWrapper *cache.CacheWrapper) *UserService {
+func NewUserService(userRepo repository.UserRepositoryInterface, cacheWrapper cache.CacheWrapperInterface) *UserService {
 	return &UserService{
 		userRepo:     userRepo,
 		cacheWrapper: cacheWrapper,
@@ -55,7 +56,7 @@ func (s *UserService) GetAllUsers() ([]model.User, error) {
 func (s *UserService) GetUserByID(id int) (*model.User, error) {
 	var user model.User
 	sugar := logger.Log.Sugar()
-	key := "user:" + string(rune(id))
+	key := "user:" + strconv.Itoa(id) // исправлено
 
 	// Пытаемся получить из кэша
 	err := s.cacheWrapper.Get(key, &user)
@@ -114,7 +115,8 @@ func (s *UserService) UpdateUser(user *model.User) error {
 	}
 
 	// Очищаем кэш конкретного пользователя и списка
-	s.cacheWrapper.Delete("user:" + string(rune(user.ID)))
+	key := "user:" + strconv.Itoa(user.ID) // исправлено
+	s.cacheWrapper.Delete(key)
 	s.cacheWrapper.Delete("users:all")
 	sugar.Infow("User updated and cache cleared",
 		"user_id", user.ID,
@@ -135,7 +137,8 @@ func (s *UserService) DeleteUser(id int) error {
 	}
 
 	// Очищаем кэш
-	s.cacheWrapper.Delete("user:" + string(rune(id)))
+	key := "user:" + strconv.Itoa(id) // исправлено
+	s.cacheWrapper.Delete(key)
 	s.cacheWrapper.Delete("users:all")
 	sugar.Infow("User deleted and cache cleared", "user_id", id)
 

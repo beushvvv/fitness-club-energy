@@ -1,160 +1,199 @@
 package service
 
 import (
+	"errors"
 	"testing"
+	"time"
 
-	"fitness-club-energy/internal/cache"
 	"fitness-club-energy/internal/logger"
 	"fitness-club-energy/internal/model"
-	"fitness-club-energy/internal/repository"
 
-	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/mock"
 )
 
 func init() {
-	// Инициализируем логгер для тестов
 	logger.Init("debug")
 }
 
-// setupTestDB подключается к реальной PostgreSQL в Docker
-func setupTestDB(t *testing.T) (*sqlx.DB, func()) {
-	db, err := sqlx.Connect("postgres", "host=localhost port=5433 user=postgres password=postgres123 dbname=fitness_club sslmode=disable")
-	require.NoError(t, err)
+func TestUserService_GetAllUsers_CacheHit(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewUserService(mockRepo, mockCache)
 
-	// Очищаем таблицу перед тестами
-	_, err = db.Exec("DELETE FROM users")
-	require.NoError(t, err)
+	expectedUsers := []model.User{{ID: 1, Name: "Test", Email: "test@test.com"}}
 
-	cleanup := func() {
-		db.Exec("DELETE FROM users")
-		db.Close()
-	}
-	return db, cleanup
-}
+	mockCache.On("Get", "users:all", mock.Anything).Run(func(args mock.Arguments) {
+		dest := args.Get(1).(*[]model.User)
+		*dest = expectedUsers
+	}).Return(nil)
 
-// setupTestCache подключается к реальному Redis в Docker
-func setupTestCache(t *testing.T) (*cache.RedisClient, func()) {
-	client := cache.NewRedisClient("localhost:6379", "", 0)
-	err := client.Ping()
-	if err != nil {
-		t.Skip("Redis not available, skipping test")
-	}
-	// Очищаем кэш
-	client.Delete("users:all")
-	client.Delete("user:1")
-	client.Delete("user:2")
-
-	cleanup := func() {
-		client.Delete("users:all")
-		client.Delete("user:1")
-		client.Delete("user:2")
-		client.Close()
-	}
-	return client, cleanup
-}
-
-func TestUserService_GetAllUsers_Integration(t *testing.T) {
-	db, dbCleanup := setupTestDB(t)
-	defer dbCleanup()
-
-	redisClient, redisCleanup := setupTestCache(t)
-	defer redisCleanup()
-
-	cacheWrapper := cache.NewCacheWrapper(redisClient)
-	userRepo := repository.NewUserRepository(db)
-	service := NewUserService(userRepo, cacheWrapper)
-
-	// Создаём тестового пользователя
-	testUser := &model.User{Name: "Test", Email: "test@test.com", Phone: "123"}
-	err := userRepo.Create(testUser)
-	require.NoError(t, err)
-
-	// Первый запрос — данные из БД
-	users1, err := service.GetAllUsers()
-	assert.NoError(t, err)
-	assert.Len(t, users1, 1)
-
-	// Второй запрос — данные из кэша
-	users2, err := service.GetAllUsers()
-	assert.NoError(t, err)
-	assert.Len(t, users2, 1)
-
-	assert.Equal(t, users1[0].Name, users2[0].Name)
-}
-
-func TestUserService_GetUserByID_Integration(t *testing.T) {
-	db, dbCleanup := setupTestDB(t)
-	defer dbCleanup()
-
-	redisClient, redisCleanup := setupTestCache(t)
-	defer redisCleanup()
-
-	cacheWrapper := cache.NewCacheWrapper(redisClient)
-	userRepo := repository.NewUserRepository(db)
-	service := NewUserService(userRepo, cacheWrapper)
-
-	// Создаём пользователя
-	user := &model.User{Name: "Test User", Email: "testid@test.com", Phone: "789"}
-	err := userRepo.Create(user)
-	require.NoError(t, err)
-
-	// Получаем по ID
-	found, err := service.GetUserByID(user.ID)
-	assert.NoError(t, err)
-	assert.Equal(t, user.Name, found.Name)
-	assert.Equal(t, user.Email, found.Email)
-
-	// Второй раз — из кэша
-	found2, err := service.GetUserByID(user.ID)
-	assert.NoError(t, err)
-	assert.Equal(t, user.Name, found2.Name)
-}
-
-func TestUserService_CreateUser_Integration(t *testing.T) {
-	db, dbCleanup := setupTestDB(t)
-	defer dbCleanup()
-
-	redisClient, redisCleanup := setupTestCache(t)
-	defer redisCleanup()
-
-	cacheWrapper := cache.NewCacheWrapper(redisClient)
-	userRepo := repository.NewUserRepository(db)
-	service := NewUserService(userRepo, cacheWrapper)
-
-	user := &model.User{Name: "New User", Email: "new@test.com", Phone: "456"}
-
-	err := service.CreateUser(user)
-	assert.NoError(t, err)
-	assert.NotZero(t, user.ID)
-
-	// Проверяем что пользователь создался
-	created, err := userRepo.FindByID(user.ID)
-	assert.NoError(t, err)
-	assert.Equal(t, user.Name, created.Name)
-
-	// Проверяем что кэш очищен — следующий GetAllUsers должен пойти в БД
 	users, err := service.GetAllUsers()
+
 	assert.NoError(t, err)
-	assert.Len(t, users, 1)
+	assert.Equal(t, expectedUsers, users)
+	mockCache.AssertExpectations(t)
+	mockRepo.AssertNotCalled(t, "FindAll")
+}
+
+func TestUserService_GetAllUsers_CacheMiss(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewUserService(mockRepo, mockCache)
+
+	expectedUsers := []model.User{{ID: 1, Name: "Test", Email: "test@test.com"}}
+
+	mockCache.On("Get", "users:all", mock.Anything).Return(errors.New("cache miss"))
+	mockRepo.On("FindAll").Return(expectedUsers, nil)
+	mockCache.On("Set", "users:all", expectedUsers, 5*time.Minute).Return(nil)
+
+	users, err := service.GetAllUsers()
+
+	assert.NoError(t, err)
+	assert.Equal(t, expectedUsers, users)
+	mockRepo.AssertExpectations(t)
+	mockCache.AssertExpectations(t)
+}
+
+func TestUserService_GetAllUsers_DBError(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewUserService(mockRepo, mockCache)
+
+	dbError := errors.New("database error")
+	mockCache.On("Get", "users:all", mock.Anything).Return(errors.New("cache miss"))
+	mockRepo.On("FindAll").Return([]model.User{}, dbError)
+
+	users, err := service.GetAllUsers()
+
+	assert.Error(t, err)
+	assert.Equal(t, dbError, err)
+	assert.Empty(t, users)
+	mockCache.AssertNotCalled(t, "Set")
+}
+
+func TestUserService_GetUserByID_CacheHit(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewUserService(mockRepo, mockCache)
+
+	expectedUser := &model.User{ID: 1, Name: "Test", Email: "test@test.com"}
+
+	mockCache.On("Get", "user:1", mock.Anything).Run(func(args mock.Arguments) {
+		dest := args.Get(1).(*model.User)
+		*dest = *expectedUser
+	}).Return(nil)
+
+	user, err := service.GetUserByID(1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, expectedUser, user)
+	mockCache.AssertExpectations(t)
+	mockRepo.AssertNotCalled(t, "FindByID")
+}
+
+func TestUserService_GetUserByID_CacheMiss(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewUserService(mockRepo, mockCache)
+
+	expectedUser := &model.User{ID: 1, Name: "Test", Email: "test@test.com"}
+
+	mockCache.On("Get", "user:1", mock.Anything).Return(errors.New("cache miss"))
+	mockRepo.On("FindByID", 1).Return(expectedUser, nil)
+	mockCache.On("Set", "user:1", expectedUser, 10*time.Minute).Return(nil)
+
+	user, err := service.GetUserByID(1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, expectedUser, user)
+	mockRepo.AssertExpectations(t)
+	mockCache.AssertExpectations(t)
 }
 
 func TestUserService_GetUserByID_NotFound(t *testing.T) {
-	db, dbCleanup := setupTestDB(t)
-	defer dbCleanup()
+	mockRepo := new(MockUserRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewUserService(mockRepo, mockCache)
 
-	redisClient, redisCleanup := setupTestCache(t)
-	defer redisCleanup()
+	notFoundErr := errors.New("sql: no rows in result set")
+	mockCache.On("Get", "user:999", mock.Anything).Return(errors.New("cache miss"))
+	mockRepo.On("FindByID", 999).Return(nil, notFoundErr)
 
-	cacheWrapper := cache.NewCacheWrapper(redisClient)
-	userRepo := repository.NewUserRepository(db)
-	service := NewUserService(userRepo, cacheWrapper)
+	user, err := service.GetUserByID(999)
 
-	// Пытаемся получить несуществующего пользователя
-	user, err := service.GetUserByID(99999)
 	assert.Error(t, err)
 	assert.Nil(t, user)
-	assert.Contains(t, err.Error(), "no rows")
+	assert.Equal(t, notFoundErr, err)
+	mockCache.AssertNotCalled(t, "Set")
+}
+
+func TestUserService_CreateUser_Success(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewUserService(mockRepo, mockCache)
+
+	user := &model.User{Name: "New User", Email: "new@test.com"}
+
+	mockRepo.On("Create", user).Run(func(args mock.Arguments) {
+		u := args.Get(0).(*model.User)
+		u.ID = 1
+	}).Return(nil)
+	mockCache.On("Delete", "users:all").Return(nil)
+
+	err := service.CreateUser(user)
+
+	assert.NoError(t, err)
+	assert.Equal(t, 1, user.ID)
+	mockRepo.AssertExpectations(t)
+	mockCache.AssertExpectations(t)
+}
+
+func TestUserService_CreateUser_DBError(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewUserService(mockRepo, mockCache)
+
+	user := &model.User{Name: "New User", Email: "new@test.com"}
+	dbError := errors.New("duplicate key value violates unique constraint")
+
+	mockRepo.On("Create", user).Return(dbError)
+
+	err := service.CreateUser(user)
+
+	assert.Error(t, err)
+	assert.Equal(t, dbError, err)
+	assert.Equal(t, 0, user.ID)
+	mockCache.AssertNotCalled(t, "Delete")
+}
+
+func TestUserService_DeleteUser_Success(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewUserService(mockRepo, mockCache)
+
+	mockRepo.On("Delete", 1).Return(nil)
+	mockCache.On("Delete", "user:1").Return(nil)
+	mockCache.On("Delete", "users:all").Return(nil)
+
+	err := service.DeleteUser(1)
+
+	assert.NoError(t, err)
+	mockRepo.AssertExpectations(t)
+	mockCache.AssertExpectations(t)
+}
+
+func TestUserService_DeleteUser_DBError(t *testing.T) {
+	mockRepo := new(MockUserRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewUserService(mockRepo, mockCache)
+
+	dbError := errors.New("user not found")
+	mockRepo.On("Delete", 999).Return(dbError)
+
+	err := service.DeleteUser(999)
+
+	assert.Error(t, err)
+	assert.Equal(t, dbError, err)
+	mockCache.AssertNotCalled(t, "Delete")
 }

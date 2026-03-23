@@ -4,19 +4,21 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
+	"time"
+
 	"fitness-club-energy/internal/cache"
 	"fitness-club-energy/internal/logger"
 	"fitness-club-energy/internal/model"
 	"fitness-club-energy/internal/repository"
-	"time"
 )
 
 type WorkoutService struct {
-	workoutRepo  *repository.WorkoutRepository
-	cacheWrapper *cache.CacheWrapper
+	workoutRepo  repository.WorkoutRepositoryInterface
+	cacheWrapper cache.CacheWrapperInterface
 }
 
-func NewWorkoutService(workoutRepo *repository.WorkoutRepository, cacheWrapper *cache.CacheWrapper) *WorkoutService {
+func NewWorkoutService(workoutRepo repository.WorkoutRepositoryInterface, cacheWrapper cache.CacheWrapperInterface) *WorkoutService {
 	return &WorkoutService{
 		workoutRepo:  workoutRepo,
 		cacheWrapper: cacheWrapper,
@@ -53,7 +55,7 @@ func (s *WorkoutService) GetAllWorkouts() ([]model.Workout, error) {
 func (s *WorkoutService) GetWorkoutByID(id int) (*model.Workout, error) {
 	var workout model.Workout
 	sugar := logger.Log.Sugar()
-	key := "workout:" + string(rune(id))
+	key := "workout:" + strconv.Itoa(id)
 
 	err := s.cacheWrapper.Get(key, &workout)
 	if err == nil {
@@ -164,7 +166,8 @@ func (s *WorkoutService) UpdateWorkout(workout *model.Workout) error {
 	}
 
 	// Очищаем кэш
-	s.cacheWrapper.Delete("workout:" + string(rune(workout.ID)))
+	key := "workout:" + strconv.Itoa(workout.ID)
+	s.cacheWrapper.Delete(key)
 	s.cacheWrapper.Delete("workouts:all")
 	sugar.Infow("Workout updated and cache cleared",
 		"workout_id", workout.ID,
@@ -185,7 +188,8 @@ func (s *WorkoutService) DeleteWorkout(id int) error {
 	}
 
 	// Очищаем кэш
-	s.cacheWrapper.Delete("workout:" + string(rune(id)))
+	key := "workout:" + strconv.Itoa(id)
+	s.cacheWrapper.Delete(key)
 	s.cacheWrapper.Delete("workouts:all")
 	sugar.Infow("Workout deleted and cache cleared", "workout_id", id)
 

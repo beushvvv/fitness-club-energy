@@ -1,139 +1,199 @@
 package service
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 	"time"
 
-	"fitness-club-energy/internal/cache"
 	"fitness-club-energy/internal/logger"
 	"fitness-club-energy/internal/model"
-	"fitness-club-energy/internal/repository"
 
-	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/mock"
 )
 
 func init() {
 	logger.Init("debug")
 }
 
-func setupTestDBMembership(t *testing.T) (*sqlx.DB, func()) {
-	db, err := sqlx.Connect("postgres", "host=localhost port=5433 user=postgres password=postgres123 dbname=fitness_club sslmode=disable")
-	require.NoError(t, err)
+func TestMembershipService_GetAllMemberships_CacheHit(t *testing.T) {
+	mockRepo := new(MockMembershipRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewMembershipService(mockRepo, mockCache)
 
-	// Очищаем таблицы
-	_, err = db.Exec("DELETE FROM memberships")
-	require.NoError(t, err)
-	_, err = db.Exec("DELETE FROM users")
-	require.NoError(t, err)
+	expectedMemberships := []model.Membership{{ID: 1, Type: "standard", Price: 1000}}
 
-	cleanup := func() {
-		db.Exec("DELETE FROM memberships")
-		db.Exec("DELETE FROM users")
-		db.Close()
-	}
-	return db, cleanup
-}
+	mockCache.On("Get", "memberships:all", mock.Anything).Run(func(args mock.Arguments) {
+		dest := args.Get(1).(*[]model.Membership)
+		*dest = expectedMemberships
+	}).Return(nil)
 
-func setupTestCacheMembership(t *testing.T) (*cache.RedisClient, func()) {
-	client := cache.NewRedisClient("localhost:6379", "", 0)
-	err := client.Ping()
-	if err != nil {
-		t.Skip("Redis not available, skipping test")
-	}
-	client.Delete("memberships:all")
-	client.Delete("membership:1")
+	memberships, err := service.GetAllMemberships()
 
-	cleanup := func() {
-		client.Delete("memberships:all")
-		client.Delete("membership:1")
-		client.Close()
-	}
-	return client, cleanup
-}
-
-func createTestUserForMembership(t *testing.T, db *sqlx.DB, email string) int {
-	var userID int
-	err := db.QueryRow(
-		"INSERT INTO users (name, email, phone, created_at) VALUES ($1, $2, $3, NOW()) RETURNING id",
-		"Test User", email, "123456789",
-	).Scan(&userID)
-	require.NoError(t, err)
-	return userID
-}
-
-func TestMembershipService_GetAllMemberships_Integration(t *testing.T) {
-	db, dbCleanup := setupTestDBMembership(t)
-	defer dbCleanup()
-
-	redisClient, redisCleanup := setupTestCacheMembership(t)
-	defer redisCleanup()
-
-	cacheWrapper := cache.NewCacheWrapper(redisClient)
-	membershipRepo := repository.NewMembershipRepository(db)
-	service := NewMembershipService(membershipRepo, cacheWrapper)
-
-	// Создаём уникального пользователя
-	userID := createTestUserForMembership(t, db, fmt.Sprintf("test_membership_%d@test.com", time.Now().UnixNano()))
-
-	// Создаём тестовый абонемент с допустимым типом
-	testMembership := &model.Membership{
-		UserID:    userID,
-		Type:      "standard", // допустимый тип
-		Price:     1000,
-		StartDate: time.Now(),
-		EndDate:   time.Now().AddDate(0, 1, 0),
-		IsActive:  true,
-	}
-	err := membershipRepo.Create(testMembership)
-	require.NoError(t, err)
-
-	// Первый запрос — из БД
-	memberships1, err := service.GetAllMemberships()
 	assert.NoError(t, err)
-	assert.Len(t, memberships1, 1)
-
-	// Второй запрос — из кэша
-	memberships2, err := service.GetAllMemberships()
-	assert.NoError(t, err)
-	assert.Len(t, memberships2, 1)
-
-	assert.Equal(t, memberships1[0].Type, memberships2[0].Type)
+	assert.Equal(t, expectedMemberships, memberships)
+	mockCache.AssertExpectations(t)
+	mockRepo.AssertNotCalled(t, "FindAll")
 }
 
-func TestMembershipService_CreateMembership_Integration(t *testing.T) {
-	db, dbCleanup := setupTestDBMembership(t)
-	defer dbCleanup()
+func TestMembershipService_GetAllMemberships_CacheMiss(t *testing.T) {
+	mockRepo := new(MockMembershipRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewMembershipService(mockRepo, mockCache)
 
-	redisClient, redisCleanup := setupTestCacheMembership(t)
-	defer redisCleanup()
+	expectedMemberships := []model.Membership{{ID: 1, Type: "standard", Price: 1000}}
 
-	cacheWrapper := cache.NewCacheWrapper(redisClient)
-	membershipRepo := repository.NewMembershipRepository(db)
-	service := NewMembershipService(membershipRepo, cacheWrapper)
+	mockCache.On("Get", "memberships:all", mock.Anything).Return(errors.New("cache miss"))
+	mockRepo.On("FindAll").Return(expectedMemberships, nil)
+	mockCache.On("Set", "memberships:all", expectedMemberships, 5*time.Minute).Return(nil)
 
-	// Создаём уникального пользователя
-	userID := createTestUserForMembership(t, db, fmt.Sprintf("test_create_%d@test.com", time.Now().UnixNano()))
+	memberships, err := service.GetAllMemberships()
 
-	// Используем допустимый тип
-	membership := &model.Membership{
-		UserID:    userID,
-		Type:      "premium", // допустимый тип
-		Price:     5000,
-		StartDate: time.Now(),
-		EndDate:   time.Now().AddDate(1, 0, 0),
-		IsActive:  true,
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, expectedMemberships, memberships)
+	mockRepo.AssertExpectations(t)
+	mockCache.AssertExpectations(t)
+}
+
+func TestMembershipService_GetAllMemberships_DBError(t *testing.T) {
+	mockRepo := new(MockMembershipRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewMembershipService(mockRepo, mockCache)
+
+	dbError := errors.New("database error")
+	mockCache.On("Get", "memberships:all", mock.Anything).Return(errors.New("cache miss"))
+	mockRepo.On("FindAll").Return([]model.Membership{}, dbError)
+
+	memberships, err := service.GetAllMemberships()
+
+	assert.Error(t, err)
+	assert.Equal(t, dbError, err)
+	assert.Empty(t, memberships)
+	mockCache.AssertNotCalled(t, "Set")
+}
+
+func TestMembershipService_GetMembershipByID_CacheHit(t *testing.T) {
+	mockRepo := new(MockMembershipRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewMembershipService(mockRepo, mockCache)
+
+	expectedMembership := &model.Membership{ID: 1, Type: "standard", Price: 1000}
+
+	mockCache.On("Get", "membership:1", mock.Anything).Run(func(args mock.Arguments) {
+		dest := args.Get(1).(*model.Membership)
+		*dest = *expectedMembership
+	}).Return(nil)
+
+	membership, err := service.GetMembershipByID(1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, expectedMembership, membership)
+	mockCache.AssertExpectations(t)
+	mockRepo.AssertNotCalled(t, "FindByID")
+}
+
+func TestMembershipService_GetMembershipByID_CacheMiss(t *testing.T) {
+	mockRepo := new(MockMembershipRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewMembershipService(mockRepo, mockCache)
+
+	expectedMembership := &model.Membership{ID: 1, Type: "standard", Price: 1000}
+
+	mockCache.On("Get", "membership:1", mock.Anything).Return(errors.New("cache miss"))
+	mockRepo.On("FindByID", 1).Return(expectedMembership, nil)
+	mockCache.On("Set", "membership:1", expectedMembership, 10*time.Minute).Return(nil)
+
+	membership, err := service.GetMembershipByID(1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, expectedMembership, membership)
+	mockRepo.AssertExpectations(t)
+	mockCache.AssertExpectations(t)
+}
+
+func TestMembershipService_GetMembershipByID_NotFound(t *testing.T) {
+	mockRepo := new(MockMembershipRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewMembershipService(mockRepo, mockCache)
+
+	notFoundErr := errors.New("sql: no rows in result set")
+	mockCache.On("Get", "membership:999", mock.Anything).Return(errors.New("cache miss"))
+	mockRepo.On("FindByID", 999).Return(nil, notFoundErr)
+
+	membership, err := service.GetMembershipByID(999)
+
+	assert.Error(t, err)
+	assert.Nil(t, membership)
+	assert.Equal(t, notFoundErr, err)
+	mockCache.AssertNotCalled(t, "Set")
+}
+
+func TestMembershipService_CreateMembership_Success(t *testing.T) {
+	mockRepo := new(MockMembershipRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewMembershipService(mockRepo, mockCache)
+
+	membership := &model.Membership{UserID: 1, Type: "standard", Price: 1000}
+
+	mockRepo.On("Create", membership).Run(func(args mock.Arguments) {
+		m := args.Get(0).(*model.Membership)
+		m.ID = 1
+	}).Return(nil)
+	mockCache.On("Delete", "memberships:all").Return(nil)
 
 	err := service.CreateMembership(membership)
-	assert.NoError(t, err)
-	assert.NotZero(t, membership.ID)
 
-	// Проверяем что создалось
-	created, err := membershipRepo.FindByID(membership.ID)
 	assert.NoError(t, err)
-	assert.Equal(t, membership.Type, created.Type)
+	assert.Equal(t, 1, membership.ID)
+	mockRepo.AssertExpectations(t)
+	mockCache.AssertExpectations(t)
+}
+
+func TestMembershipService_CreateMembership_DBError(t *testing.T) {
+	mockRepo := new(MockMembershipRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewMembershipService(mockRepo, mockCache)
+
+	membership := &model.Membership{UserID: 1, Type: "standard", Price: 1000}
+	dbError := errors.New("duplicate key")
+
+	mockRepo.On("Create", membership).Return(dbError)
+
+	err := service.CreateMembership(membership)
+
+	assert.Error(t, err)
+	assert.Equal(t, dbError, err)
+	assert.Equal(t, 0, membership.ID)
+	mockCache.AssertNotCalled(t, "Delete")
+}
+
+func TestMembershipService_DeleteMembership_Success(t *testing.T) {
+	mockRepo := new(MockMembershipRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewMembershipService(mockRepo, mockCache)
+
+	mockRepo.On("Delete", 1).Return(nil)
+	mockCache.On("Delete", "membership:1").Return(nil)
+	mockCache.On("Delete", "memberships:all").Return(nil)
+
+	err := service.DeleteMembership(1)
+
+	assert.NoError(t, err)
+	mockRepo.AssertExpectations(t)
+	mockCache.AssertExpectations(t)
+}
+
+func TestMembershipService_DeleteMembership_DBError(t *testing.T) {
+	mockRepo := new(MockMembershipRepository)
+	mockCache := new(MockCacheWrapper)
+	service := NewMembershipService(mockRepo, mockCache)
+
+	dbError := errors.New("membership not found")
+	mockRepo.On("Delete", 999).Return(dbError)
+
+	err := service.DeleteMembership(999)
+
+	assert.Error(t, err)
+	assert.Equal(t, dbError, err)
+	mockCache.AssertNotCalled(t, "Delete")
 }
